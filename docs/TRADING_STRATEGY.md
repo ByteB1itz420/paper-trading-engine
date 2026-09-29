@@ -1,0 +1,7 @@
+# Mean reversion on quotes
+
+For each symbol the baseline uses the previous `STRATEGY_WINDOW` valid mid-prices, *excluding the current quote*. Mid-price is `(bid + ask) / 2`. Compute the population mean and standard deviation of that baseline, then `z = (current_mid - mean) / std`. If standard deviation is zero, z is zero rather than a division error. Until the window fills, the engine does not signal. Each accepted quote then enters the rolling window after the decision.
+
+With no position: `z < -ENTRY_Z` proposes a long, `z > ENTRY_Z` proposes a short. This first implementation is deliberately cash-only, so a short proposal is recorded then rejected with an explicit reason. When a long is open, `z >= -EXIT_Z` proposes an exit. The signal stores its rule and observed z-score. It does not forecast price and does not guarantee profit. Fees and spread make repeated signals costly; there is no cooldown or edge claim. The interview explanation is: "When BTC's mid-price falls well below the last N quotes, try a small paper buy; sell when it returns toward that average, but only if risk allows it."
+
+The same deterministic signal code works on synthetic demo ticks or live public quotes. No historical optimization or backtest-derived parameter selection is claimed. A live market feed cannot guarantee a signal or fill in a particular interview window; the labeled demo feed can demonstrate the path repeatably.

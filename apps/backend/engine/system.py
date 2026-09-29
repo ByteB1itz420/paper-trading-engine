@@ -1,0 +1,121 @@
+import logging
+import time
+from datetime import datetime, timezone
+from decimal import Decimal as D
+from uuid import uuid4
+from .config import Settings
+from .models import MarketTick, serial, stamp
+from .strategy import MeanReversion
+from .portfolio import Portfolio
+from .risk import Risk
+from .execution import PaperExecution
+from .store import Store
+
+log = logging.getLogger(__name__)
+
+
+class System:
+    def __init__(self, cfg: Settings, store: Store):
+        self.cfg, self.store = cfg, store
+        self.listeners: set = set()
+        self.feed = None
+        self.reset()
+                # Fail-closed restart: a fresh paper session, never silently resume stale positions.
+        self.store.add('system_events', self.session, 'SESSION', {'session_id': self.session, 'started': stamp(), 'mode': cfg.mode, 'restart_policy': 'new session'})
+
+    def reset(self):
+        self.session = uuid4().hex
+        self.portfolio = Portfolio(self.cfg.initial_capital, self.cfg.symbols)
+        self.strategy = MeanReversion(self.cfg.window, self.cfg.entry_z, self.cfg.exit_z)
+        self.risk = Risk(dict(zip(self.cfg.symbols, self.cfg.max_positions, strict=True)), self.cfg.max_daily_loss, self.cfg.stale_ms)
+        self.executor = PaperExecution(self.cfg.fee_rate, self.cfg.slippage_bps)
+        self.market: dict[str, MarketTick] = {}
+        self.benchmark_start: dict[str, D] = {}
+        self.curve: list[dict] = []
+        self.fills: list[dict] = []
+        self.rejections: list[dict] = []
+        self.signals: list[dict] = []
+        self.last_snapshot = 0.0
+
+    def benchmark(self):
+        if len(self.benchmark_start) != len(self.cfg.symbols):
+            return None
+        each = self.cfg.initial_capital / len(self.cfg.symbols)
+        equity = sum((each * self.portfolio.marks[s] / self.benchmark_start[s]
+                      for s in self.cfg.symbols), D('0'))
+        return {'equity': equity, 'return_pct': (equity / self.cfg.initial_capital - 1) * 100}
+
+    def state(self):
+        now = int(time.time()*1000)
+        stale = {s: s not in self.market or now - self.market[s].received_ms > self.cfg.stale_ms for s in self.cfg.symbols}
+        return serial({'mode': self.cfg.mode, 'session': self.session, 'connected': bool(self.feed and self.feed.connected),
+                       'market': self.market, 'stale': stale, 'trading': not self.risk.killed and not self.risk.daily_halt and not any(stale.values()),
+                       'risk': {'killed': self.risk.killed, 'daily_halt': self.risk.daily_halt,
+                                'max_daily_loss': self.cfg.max_daily_loss, 'max_positions': self.risk.limits,
+                                'rejections': self.rejections[-30:]},
+                       'portfolio': self.portfolio.snapshot(), 'benchmark': self.benchmark(),
+                       'curve': self.curve[-300:], 'fills': self.fills[-50:], 'signals': self.signals[-30:],
+                       'updated_at': stamp()})
+
+    async def publish(self):
+        from fastapi.websockets import WebSocketDisconnect
+        state = self.state()
+        for ws in tuple(self.listeners):
+            try:
+                await ws.send_json(state)
+            except (WebSocketDisconnect, RuntimeError, OSError):
+                self.listeners.discard(ws)
+
+    async def on_tick(self, tick: MarketTick):
+        if not tick.valid or tick.symbol not in self.cfg.symbols:
+            return
+        self.market[tick.symbol] = tick
+        self.portfolio.marks[tick.symbol] = tick.mid
+        if tick.symbol not in self.benchmark_start:
+            self.benchmark_start[tick.symbol] = tick.mid
+        day = datetime.now(timezone.utc).date().isoformat()
+        if self.portfolio.day != day:
+            self.portfolio.day, self.portfolio.day_start_equity = day, self.portfolio.equity()
+            self.risk.daily_halt = False
+        if self.portfolio.equity() - self.portfolio.day_start_equity <= -self.risk.max_loss:
+            self.risk.daily_halt = True
+        signal = self.strategy.on_market_update(tick, self.portfolio.positions[tick.symbol].quantity)
+        if signal:
+            data = serial(signal)
+            self.signals.append(data)
+            self.store.add('strategy_signals', self.session, tick.symbol, data)
+            side = 'SELL' if signal.action in {'SHORT', 'EXIT'} and self.portfolio.positions[tick.symbol].quantity > 0 else 'BUY'
+            if signal.action == 'SHORT' and self.portfolio.positions[tick.symbol].quantity == 0:
+                side = 'SELL'  # transparently reject unsupported cash-account short
+            qty = abs(self.portfolio.positions[tick.symbol].quantity) if signal.action == 'EXIT' else self.cfg.order_notional / (tick.ask if side == 'BUY' else tick.bid)
+            reason = self.risk.check(tick, side, qty, self.portfolio, int(time.time()*1000))
+            if qty * tick.mid < self.cfg.min_notional:
+                reason = reason or 'Below minimum paper notional'
+            if reason:
+                rejection = {'symbol': tick.symbol, 'action': signal.action, 'reason': reason, 'timestamp': tick.timestamp}
+                self.rejections.append(rejection)
+                self.store.add('risk_events', self.session, tick.symbol, rejection)
+                log.info('[RISK] %s %s', tick.symbol, reason)
+            else:
+                fill = self.executor.fill(tick, signal, side, qty)
+                self.store.add('orders', self.session, tick.symbol, {'order_id': fill.order_id, 'signal': data, 'side': side, 'quantity': qty})
+                # Persist the intended fill before applying it in memory. A failed write halts
+                # the simulator; never show a paper fill that was not recorded.
+                self.store.add('fills', self.session, tick.symbol, fill)
+                realized = self.portfolio.apply(fill)
+                filled = serial(fill)
+                filled['realized_pnl'] = str(realized)
+                self.fills.append(filled)
+                log.info('[FILL] %s %s qty=%s price=%s', tick.symbol, side, qty, fill.execution_price)
+        now = time.monotonic()
+        if now - self.last_snapshot >= 1:
+            self.last_snapshot = now
+            point = serial({'timestamp': tick.timestamp, 'equity': self.portfolio.equity(),
+                            'benchmark': self.benchmark()['equity'] if self.benchmark() else None})
+            self.curve.append(point)
+            self.store.add('portfolio_snapshots', self.session, '', point)
+            for symbol, position in self.portfolio.positions.items():
+                self.store.add('positions', self.session, symbol, serial(position))
+            # sample market state, not every raw exchange tick
+            self.store.add('market_events', self.session, tick.symbol, serial(tick))
+        await self.publish()

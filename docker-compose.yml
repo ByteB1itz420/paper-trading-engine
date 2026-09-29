@@ -1,0 +1,29 @@
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: paper
+      POSTGRES_USER: paper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - paper-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paper"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      MODE: ${MODE:-demo}
+      DATABASE_URL: postgresql+psycopg://paper:${POSTGRES_PASSWORD}@database:5432/paper
+      CONTROL_TOKEN: ${CONTROL_TOKEN:?Set CONTROL_TOKEN}
+      INITIAL_CAPITAL: ${INITIAL_CAPITAL:-100000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+volumes:
+  paper-db:
