@@ -79,7 +79,7 @@ cd apps/frontend && npm ci && npm run lint && npm run build
 
 ## Cloud deployment
 
-`Dockerfile` builds frontend and backend together; `render.yaml` describes one Docker web service and PostgreSQL database. On Render, connect this repository, deploy the Blueprint, set `CONTROL_TOKEN` to a private high-entropy value (the blueprint generates one), set `MODE=live`, confirm the database URL uses the internal DB, and verify `/health`, `/api/market`, `/ws`, and the actual dashboard over HTTPS/WSS. Render free services may sleep and stop streaming between visits; this cannot guarantee a continuously active trading demonstration. On any cloud host choose an always-on instance for continuous monitoring, one replica, HTTPS proxy with WebSocket upgrade, and durable PostgreSQL. No deployed application is claimed until its actual URL and behavior are checked. Local Docker build could not be verified in the original authoring workspace because Docker was unavailable.
+`Dockerfile` builds frontend and backend together; `render.yaml` describes one free Docker web service and one free PostgreSQL database. See [step-by-step Render instructions](docs/DEPLOY_RENDER.md). The Blueprint generates `CONTROL_TOKEN` and attaches an internal database URL; verify `/health`, `/api/market`, `/ws`, and the actual dashboard over HTTPS/WSS before sharing. Render free web services sleep after 15 idle minutes and free PostgreSQL expires after 30 days. This cannot guarantee continuous monitoring or durable records. On any cloud host choose an always-on instance for continuous monitoring, one replica, HTTPS proxy with WebSocket upgrade, and durable PostgreSQL. No deployed application is claimed until its actual URL and behavior are checked. Local Docker build could not be verified in the original authoring workspace because Docker was unavailable.
 
 ## Interview talk track
 
@@ -95,4 +95,10 @@ cd apps/frontend && npm ci && npm run lint && npm run build
 
 ## Limitations and evidence
 
-This code does not implement real borrow/locate, margin requirements, full-depth order books, maker queue priority, hidden liquidity, trading API requests, tick-perfect persistence, multi-process state coordination, or independent exchange reconciliation. The local tests and source code are not evidence of continuous uptime or of real-money profitability. No fabricated live performance figures are published. The README demo-media slot remains unfilled until a genuine captured runtime is recorded and visually checked.
+This code does not implement real borrow/locate, margin requirements, full-depth order books, maker queue priority, hidden liquidity, trading API requests, tick-perfect persistence, multi-process state coordination, or independent exchange reconciliation. The local tests and source code are not evidence of continuous uptime or of real-money profitability. No fabricated live performance figures are published. A genuine locally captured synthetic-demo screenshot is included below; it is not evidence of live trading or deployed uptime. A recorded video remains unmade.
+
+## Local synthetic-demo preview
+
+![Locally rendered paper-only demo dashboard, synthetic data](docs/demo-dashboard.png)
+
+This screenshot is labeled synthetic demo; its simulated balances must never be described as live returns.
