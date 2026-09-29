@@ -14,3 +14,21 @@ def test_api_and_websocket():
             first=ws.receive_json()
             assert first['mode']=='demo' and first['session']==sys.session
             assert first['portfolio']['equity']
+
+
+def test_reset_and_kill_switch_require_control_token(monkeypatch):
+    from apps.backend import main
+    monkeypatch.setattr(main.cfg, 'control_token', 'abc-test') if False else None
+    # Settings is frozen, so replace only the module-level config reference for this test.
+    from dataclasses import replace
+    monkeypatch.setattr(main, 'cfg', replace(main.cfg, control_token='abc-test'))
+    with TestClient(app) as client:
+        old = client.get('/api/state').json()['session']
+        assert client.post('/api/reset-session').status_code == 403
+        response = client.post('/api/kill-switch', headers={'X-Control-Token':'abc-test'}, json={'enabled':True})
+        assert response.status_code == 200 and response.json()['killed'] is True
+        assert client.get('/api/state').json()['risk']['killed'] is True
+        response = client.post('/api/reset-session', headers={'X-Control-Token':'abc-test'})
+        assert response.status_code == 200
+        assert response.json()['session'] != old
+        assert client.get('/api/state').json()['risk']['killed'] is False

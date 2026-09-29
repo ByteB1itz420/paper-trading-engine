@@ -22,15 +22,18 @@ sys = System(cfg, store)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     sys.feed = DemoFeed(sys.on_tick) if cfg.mode == 'demo' else BinanceFeed(sys.on_tick)
-    task = asyncio.create_task(sys.feed.run())
+    async def heartbeat():
+        while True:
+            await asyncio.sleep(1)
+            await sys.publish()  # refresh stale/connected status even with no market ticks
+
+    tasks = [asyncio.create_task(sys.feed.run()), asyncio.create_task(heartbeat())]
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 app = FastAPI(title='Live Paper Trading Engine', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=['http://localhost:5173'], allow_credentials=False,
@@ -81,16 +84,22 @@ def state(): return sys.state()
 @app.post('/api/kill-switch')
 async def kill(body: Switch, x_control_token: str | None = Header(default=None)):
     authorize(x_control_token)
-    sys.risk.killed = body.enabled
+    if sys.persistence_failed:
+        raise HTTPException(503, 'Database failure: restart and inspect records before resuming')
     store.add('risk_events', sys.session, '', {'kill_switch': body.enabled})
+    sys.risk.killed = body.enabled
     await sys.publish()
     return {'killed': sys.risk.killed}
 
 @app.post('/api/reset-session')
 async def reset(x_control_token: str | None = Header(default=None)):
     authorize(x_control_token)
-    sys.reset()
-    store.add('system_events', sys.session, 'SESSION', {'session_id': sys.session, 'reset': True, 'mode': cfg.mode})
+    if sys.persistence_failed:
+        raise HTTPException(503, 'Database failure: restart and inspect records before resetting')
+    from uuid import uuid4
+    next_session = uuid4().hex
+    store.add('system_events', next_session, 'SESSION', {'session_id': next_session, 'reset': True, 'mode': cfg.mode})
+    sys.reset(session_id=next_session)
     await sys.publish()
     return {'session': sys.session, 'paper_only': True}
 

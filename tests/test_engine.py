@@ -83,14 +83,13 @@ async def test_full_flow_and_persistence(tmp_path):
                    entry_z=D('1'), exit_z=D('0.2'), order_notional=D('20'), min_notional=D('10'))
     store = Store(cfg.database_url)
     system = System(cfg, store)
+    await system.on_tick(tick('ETHUSDT','3999','4001'))
     for bid in ['98', '99', '100', '89', '99']:
         await system.on_tick(tick(bid=bid, ask=str(D(bid)+2)))
     assert len(system.fills) >= 2
     assert len(store.recent('fills', system.session)) == len(system.fills)
     assert store.recent('positions', system.session)
     assert store.recent('portfolio_snapshots', system.session)
-    assert system.state()['benchmark'] is None
-    await system.on_tick(tick('ETHUSDT', '3999', '4001'))
     assert system.state()['benchmark'] is not None
     system.risk.killed = True
     for bid in ['98', '99', '100', '89']:
@@ -145,6 +144,7 @@ async def test_system_short_signal_reaches_paper_execution(tmp_path):
     cfg = Settings(mode='demo', database_url=f'sqlite:///{tmp_path}/short.db', window=3,
                    entry_z=D('1'), exit_z=D('0.2'), order_notional=D('20'), min_notional=D('10'))
     system = System(cfg, Store(cfg.database_url))
+    await system.on_tick(tick('ETHUSDT','3999','4001'))
     for bid in ['98', '99', '100', '109']:
         await system.on_tick(tick(bid=bid, ask=str(D(bid)+2)))
     assert system.fills[-1]['side'] == 'SELL'

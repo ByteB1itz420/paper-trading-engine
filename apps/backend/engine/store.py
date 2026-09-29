@@ -28,6 +28,19 @@ class Store:
             conn.execute(text(f'INSERT INTO {table} (session_id,symbol,timestamp,payload) VALUES (:s,:y,:t,:p)'),
                          {'s': session, 'y': symbol, 't': timestamp or stamp(), 'p': json.dumps(serial(payload))})
 
+
+    def record_execution(self, session: str, symbol: str, order: dict, fill: dict,
+                         position: dict, portfolio: dict):
+        """Write the whole simulated accounting transition atomically."""
+        rows = [('orders', order), ('fills', fill), ('positions', position),
+                ('portfolio_snapshots', portfolio)]
+        with self.engine.begin() as conn:
+            for table, payload in rows:
+                conn.execute(text(f'INSERT INTO {table} (session_id,symbol,timestamp,payload) '
+                                  'VALUES (:s,:y,:t,:p)'),
+                             {'s': session, 'y': symbol, 't': stamp(),
+                              'p': json.dumps(serial(payload))})
+
     def recent(self, table: str, session: str, limit: int = 100) -> list[dict]:
         if table not in SCHEMA:
             raise ValueError('Unknown table')

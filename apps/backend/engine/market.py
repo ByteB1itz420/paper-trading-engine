@@ -20,6 +20,7 @@ class BinanceFeed:
         self.sequence: dict[str, int] = {}
         self.connected = False
         self.failures = 0
+        self.last_trade_ids: dict[str, int] = {}
 
     async def consume(self, payload: dict) -> None:
         data = payload.get('data', payload)
@@ -39,7 +40,15 @@ class BinanceFeed:
                 self.sequence[symbol] = seq
                 self.quotes[symbol] = dict(bid=bid, ask=ask, bid_size=bs, ask_size=ass)
             elif kind == 'trade' or data.get('e') == 'trade':
-                self.trades[symbol] = dict(last_price=D(data['p']), last_trade_size=D(data['q']))
+                trade_id = int(data['t']) if 't' in data else None
+                if trade_id is not None and trade_id <= self.last_trade_ids.get(symbol, -1):
+                    return
+                price, size = D(data['p']), D(data['q'])
+                if price <= 0 or size <= 0:
+                    raise ValueError('invalid trade')
+                if trade_id is not None:
+                    self.last_trade_ids[symbol] = trade_id
+                self.trades[symbol] = dict(last_price=price, last_trade_size=size)
                 return  # strategy advances on quote updates, not an unsynchronized trade event
             else:
                 return
@@ -59,6 +68,8 @@ class BinanceFeed:
                     delay = 1
                     self.quotes.clear()
                     self.sequence.clear()
+                    self.trades.clear()
+                    self.last_trade_ids.clear()
                     log.info('[MARKET] connected to public feed')
                     async for message in ws:
                         await self.consume(json.loads(message))
@@ -70,5 +81,7 @@ class BinanceFeed:
             finally:
                 self.connected = False
                 self.quotes.clear()
+                self.trades.clear()
+                self.last_trade_ids.clear()
             await asyncio.sleep(delay)
             delay = min(delay * 2, 30)

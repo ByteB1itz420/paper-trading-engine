@@ -25,7 +25,12 @@ class Risk:
         if abs(portfolio.positions[tick.symbol].quantity + signed) > self.limits[tick.symbol]:
             return 'Position limit exceeded'
         estimated = quantity * tick.ask * Decimal('1.01')
-        if side == 'BUY' and portfolio.cash < estimated:
+        # Proceeds from open paper shorts cannot finance another entry. Covering a
+        # short reduces exposure, so do not block a cover on the entry-cash check.
+        short_proceeds = sum((abs(pos.quantity) * pos.average for pos in portfolio.positions.values()
+                              if pos.quantity < 0), Decimal('0'))
+        is_cover = side == 'BUY' and portfolio.positions[tick.symbol].quantity < 0
+        if side == 'BUY' and not is_cover and portfolio.cash - short_proceeds < estimated:
             return 'Insufficient paper cash'
         # Paper short proceeds are not withdrawable collateral. Keep gross short notional
         # backed by initial virtual capital; no broker margin or borrow is simulated.

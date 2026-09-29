@@ -1,3 +1,4 @@
+import copy
 import logging
 import time
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from .portfolio import Portfolio
 from .risk import Risk
 from .execution import PaperExecution
 from .store import Store
+from sqlalchemy.exc import SQLAlchemyError
 
 log = logging.getLogger(__name__)
 
@@ -20,11 +22,11 @@ class System:
         self.listeners: set = set()
         self.feed = None
         self.reset()
-                # Fail-closed restart: a fresh paper session, never silently resume stale positions.
+        # Fail-closed restart: a fresh paper session, never silently resume stale positions.
         self.store.add('system_events', self.session, 'SESSION', {'session_id': self.session, 'started': stamp(), 'mode': cfg.mode, 'restart_policy': 'new session'})
 
-    def reset(self):
-        self.session = uuid4().hex
+    def reset(self, session_id: str | None = None):
+        self.session = session_id or uuid4().hex
         self.portfolio = Portfolio(self.cfg.initial_capital, self.cfg.symbols)
         self.strategy = MeanReversion(self.cfg.window, self.cfg.entry_z, self.cfg.exit_z)
         self.risk = Risk(dict(zip(self.cfg.symbols, self.cfg.max_positions, strict=True)), self.cfg.max_daily_loss, self.cfg.stale_ms)
@@ -36,6 +38,7 @@ class System:
         self.rejections: list[dict] = []
         self.signals: list[dict] = []
         self.last_snapshot = 0.0
+        self.persistence_failed = False
 
     def benchmark(self):
         if len(self.benchmark_start) != len(self.cfg.symbols):
@@ -49,8 +52,8 @@ class System:
         now = int(time.time()*1000)
         stale = {s: s not in self.market or now - self.market[s].received_ms > self.cfg.stale_ms for s in self.cfg.symbols}
         return serial({'mode': self.cfg.mode, 'session': self.session, 'connected': bool(self.feed and self.feed.connected),
-                       'market': self.market, 'stale': stale, 'trading': not self.risk.killed and not self.risk.daily_halt and not any(stale.values()),
-                       'risk': {'killed': self.risk.killed, 'daily_halt': self.risk.daily_halt,
+                       'market': self.market, 'stale': stale, 'trading': not self.persistence_failed and not self.risk.killed and not self.risk.daily_halt and not any(stale.values()),
+                       'risk': {'killed': self.risk.killed, 'daily_halt': self.risk.daily_halt, 'persistence_failed': self.persistence_failed,
                                 'max_daily_loss': self.cfg.max_daily_loss, 'max_positions': self.risk.limits,
                                 'rejections': self.rejections[-30:]},
                        'portfolio': self.portfolio.snapshot(), 'benchmark': self.benchmark(),
@@ -67,6 +70,17 @@ class System:
                 self.listeners.discard(ws)
 
     async def on_tick(self, tick: MarketTick):
+        if self.persistence_failed:
+            return
+        try:
+            await self._process_tick(tick)
+        except SQLAlchemyError:
+            self.persistence_failed = True
+            self.risk.killed = True
+            log.exception('[ERROR] database write failed; paper engine halted until process restart')
+            await self.publish()
+
+    async def _process_tick(self, tick: MarketTick):
         if not tick.valid or tick.symbol not in self.cfg.symbols:
             return
         self.market[tick.symbol] = tick
@@ -75,8 +89,10 @@ class System:
             self.benchmark_start[tick.symbol] = tick.mid
         day = datetime.now(timezone.utc).date().isoformat()
         if self.portfolio.day != day:
-            self.portfolio.day, self.portfolio.day_start_equity = day, self.portfolio.equity()
-            self.risk.daily_halt = False
+            if self.portfolio.day:
+                self.portfolio.day_start_equity = self.portfolio.equity()
+                self.risk.daily_halt = False
+            self.portfolio.day = day
         if self.portfolio.equity() - self.portfolio.day_start_equity <= -self.risk.max_loss:
             self.risk.daily_halt = True
         signal = self.strategy.on_market_update(tick, self.portfolio.positions[tick.symbol].quantity)
@@ -87,7 +103,12 @@ class System:
             current_position = self.portfolio.positions[tick.symbol].quantity
             side = 'BUY' if signal.action == 'LONG' or (signal.action == 'EXIT' and current_position < 0) else 'SELL'
             qty = abs(self.portfolio.positions[tick.symbol].quantity) if signal.action == 'EXIT' else self.cfg.order_notional / (tick.ask if side == 'BUY' else tick.bid)
-            reason = self.risk.check(tick, side, qty, self.portfolio, int(time.time()*1000))
+            now_ms = int(time.time()*1000)
+            other_stale = any(symbol not in self.market or
+                              now_ms - self.market[symbol].received_ms > self.cfg.stale_ms
+                              for symbol in self.cfg.symbols)
+            reason = ('One or more market feeds stale' if other_stale else
+                      self.risk.check(tick, side, qty, self.portfolio, now_ms))
             if qty * tick.mid < self.cfg.min_notional:
                 reason = reason or 'Below minimum paper notional'
             if reason:
@@ -97,13 +118,17 @@ class System:
                 log.info('[RISK] %s %s', tick.symbol, reason)
             else:
                 fill = self.executor.fill(tick, signal, side, qty)
-                self.store.add('orders', self.session, tick.symbol, {'order_id': fill.order_id, 'signal': data, 'side': side, 'quantity': qty})
-                # The in-memory ledger is the active-session source of truth; persistence
-                # records the fill before acknowledging it. A DB failure halts this run.
-                self.store.add('fills', self.session, tick.symbol, fill)
-                realized = self.portfolio.apply(fill)
+                # One DB transaction for order/fill/position/ledger after computing a candidate.
+                # In-memory state changes only after the transaction commits.
+                candidate = copy.deepcopy(self.portfolio)
+                realized = candidate.apply(fill)
                 filled = serial(fill)
                 filled['realized_pnl'] = str(realized)
+                self.store.record_execution(self.session, tick.symbol,
+                    {'order_id': fill.order_id, 'signal': data, 'side': side, 'quantity': qty},
+                    filled, serial(candidate.positions[tick.symbol]),
+                    serial(candidate.snapshot()))
+                self.portfolio = candidate
                 self.fills.append(filled)
                 log.info('[FILL] %s %s qty=%s price=%s', tick.symbol, side, qty, fill.execution_price)
         now = time.monotonic()
