@@ -6,7 +6,7 @@ The repo has a `render.yaml` Blueprint for one Docker web service and one free P
 2. Select **New → Blueprint** and choose this repository and `render.yaml`. Inspect both proposed resources: `paper-trading-engine` as a **Free** Docker web service; `paper-trading-db` as **Free** PostgreSQL. If the UI proposes a paid plan or asks for a card, stop rather than accepting.
 3. The Blueprint sets `MODE=live`, generates a secret `CONTROL_TOKEN`, and attaches the database connection string. Keep the token in Render's secret settings. One web replica only. Use Render's same-region internal database URL; never expose it to the browser.
 4. Deploy. Open the exact URL Render returns; verify `/health` says `connected: true` after startup, `/api/market` has BTCUSDT and ETHUSDT with fresh timestamps, the dashboard header says **LIVE PUBLIC MARKET DATA**, `/ws` yields changing quotes, and a demo run on a separate local instance remains labeled demo. Check the public dashboard on desktop and mobile. No live P&L result should be claimed until observed on the deployed service.
-5. The control field requires the private token. Test kill and reset only as the owner, then clear the browser tab's session storage. A public viewer has read-only access. Keep the repo private until the owner has explicitly chosen a public release.
+5. The control field requires the private token. Test kill and reset only as the owner, then clear the browser tab's session storage. A public viewer has read-only access. The owner approved public repository visibility on September 30, 2026; the operator token and database URL remain private.
 
 ## Free-tier caveats
 

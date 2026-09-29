@@ -2,7 +2,7 @@
 
 *A real-time, risk-controlled paper trading system built on public cryptocurrency market data.*
 
-**Paper only. No exchange credentials. No real orders. No profit claims.** Private build under review; there is no verified public deployment URL yet. A local demo runs with labeled synthetic quotes; live mode streams BTC/USDT and ETH/USDT best bids/asks and trades from Binance's public market-data-only WebSocket.
+**Paper only. No exchange credentials. No real orders. No profit claims.** A [free Render preview](https://paper-trading-engine.onrender.com/) was verified live on September 29, 2026; it sleeps on inactivity and its free database expires October 29, 2026. A local demo runs with labeled synthetic quotes; live mode streams BTC/USDT and ETH/USDT best bids/asks and trades from Binance's public market-data-only WebSocket.
 
 ## Architecture
 
@@ -79,7 +79,7 @@ cd apps/frontend && npm ci && npm run lint && npm run build
 
 ## Cloud deployment
 
-`Dockerfile` builds frontend and backend together; `render.yaml` describes one free Docker web service and one free PostgreSQL database. See [step-by-step Render instructions](docs/DEPLOY_RENDER.md). The Blueprint generates `CONTROL_TOKEN` and attaches an internal database URL; verify `/health`, `/api/market`, `/ws`, and the actual dashboard over HTTPS/WSS before sharing. Render free web services sleep after 15 idle minutes and free PostgreSQL expires after 30 days. This cannot guarantee continuous monitoring or durable records. On any cloud host choose an always-on instance for continuous monitoring, one replica, HTTPS proxy with WebSocket upgrade, and durable PostgreSQL. No deployed application is claimed until its actual URL and behavior are checked. Local Docker build could not be verified in the original authoring workspace because Docker was unavailable.
+`Dockerfile` builds frontend and backend together; `render.yaml` describes one free Docker web service and one free PostgreSQL database. See [step-by-step Render instructions](docs/DEPLOY_RENDER.md). The Blueprint generates `CONTROL_TOKEN` and attaches an internal database URL; verify `/health`, `/api/market`, `/ws`, and the actual dashboard over HTTPS/WSS before sharing. Render free web services sleep after 15 idle minutes and free PostgreSQL expires after 30 days. This cannot guarantee continuous monitoring or durable records. On any cloud host choose an always-on instance for continuous monitoring, one replica, HTTPS proxy with WebSocket upgrade, and durable PostgreSQL. The Render Docker build and HTTPS/WSS app were verified September 29, 2026; that is a time-bounded observation, not an uptime claim. Local Docker was unavailable in the authoring workspace.
 
 ## Interview talk track
 
@@ -95,7 +95,11 @@ cd apps/frontend && npm ci && npm run lint && npm run build
 
 ## Limitations and evidence
 
-This code does not implement real borrow/locate, margin requirements, full-depth order books, maker queue priority, hidden liquidity, trading API requests, tick-perfect persistence, multi-process state coordination, or independent exchange reconciliation. The local tests and source code are not evidence of continuous uptime or of real-money profitability. No fabricated live performance figures are published. A genuine locally captured synthetic-demo screenshot is included below; it is not evidence of live trading or deployed uptime. A recorded video remains unmade.
+This code does not implement real borrow/locate, margin requirements, full-depth order books, maker queue priority, hidden liquidity, trading API requests, tick-perfect persistence, multi-process state coordination, or independent exchange reconciliation. The local tests and source code are not evidence of continuous uptime or of real-money profitability. No fabricated live performance figures are published. A genuine locally captured synthetic-demo screenshot is included below; it is not evidence of live trading or deployed uptime. The short video linked below is a montage of a dated, real UI capture and a separate synthetic-demo capture, not a continuous market recording or evidence of returns.
+
+## Short project video
+
+[Watch the 17-second project video](brag-output/brag.mp4) ([poster](brag-output/brag-poster.png)). It combines a genuine September 29 live-dashboard capture with the separately labeled synthetic demo and explains the quote → signal → risk → simulated-fill path. On-screen figures are a snapshot from one paper session, not a track record. [Media provenance](brag-output/MEDIA.md).
 
 ## Local synthetic-demo preview
 
