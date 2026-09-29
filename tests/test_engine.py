@@ -119,3 +119,36 @@ async def test_bookticker_duplicates_and_malformed():
     msg['data']['u'] = 12
     await feed.consume(msg)
     assert received[-1].last_trade_size == D('0.2')
+
+
+def test_paper_short_and_cover_accounting():
+    portfolio = Portfolio(D('100000'), ('BTCUSDT',))
+    portfolio.marks['BTCUSDT'] = D('100')
+    risk = Risk({'BTCUSDT': D('2')}, D('2000'), 5000)
+    execution = PaperExecution(D('0.001'), D('0'))
+    assert risk.check(tick(), 'SELL', D('1'), portfolio, NOW) is None
+    opened = execution.fill(tick(), signal('SHORT'), 'SELL', D('1'))
+    assert portfolio.apply(opened) == 0
+    assert portfolio.positions['BTCUSDT'].quantity == -1
+    assert portfolio.cash == D('100098.901')
+    portfolio.marks['BTCUSDT'] = D('90')
+    assert portfolio.snapshot()['positions']['BTCUSDT']['unrealized'] == D('9')
+    covered = execution.fill(tick(bid='89', ask='91'), signal('EXIT'), 'BUY', D('1'))
+    assert portfolio.apply(covered) == D('8')
+    assert portfolio.positions['BTCUSDT'].quantity == 0
+    assert portfolio.equity() == D('100007.810')
+    assert portfolio.fees == D('0.190')
+
+
+@pytest.mark.asyncio
+async def test_system_short_signal_reaches_paper_execution(tmp_path):
+    cfg = Settings(mode='demo', database_url=f'sqlite:///{tmp_path}/short.db', window=3,
+                   entry_z=D('1'), exit_z=D('0.2'), order_notional=D('20'), min_notional=D('10'))
+    system = System(cfg, Store(cfg.database_url))
+    for bid in ['98', '99', '100', '109']:
+        await system.on_tick(tick(bid=bid, ask=str(D(bid)+2)))
+    assert system.fills[-1]['side'] == 'SELL'
+    assert system.portfolio.positions['BTCUSDT'].quantity < 0
+    await system.on_tick(tick(bid='99', ask='101'))
+    assert system.fills[-1]['side'] == 'BUY'
+    assert system.portfolio.positions['BTCUSDT'].quantity == 0

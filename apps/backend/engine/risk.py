@@ -24,12 +24,14 @@ class Risk:
         signed = quantity if side == 'BUY' else -quantity
         if abs(portfolio.positions[tick.symbol].quantity + signed) > self.limits[tick.symbol]:
             return 'Position limit exceeded'
-        # Short positions require collateral not modeled; keep the first implementation long/flat.
-        if portfolio.positions[tick.symbol].quantity + signed < 0:
-            return 'Short sale unsupported in cash-only paper account'
         estimated = quantity * tick.ask * Decimal('1.01')
         if side == 'BUY' and portfolio.cash < estimated:
             return 'Insufficient paper cash'
+        # Paper short proceeds are not withdrawable collateral. Keep gross short notional
+        # backed by initial virtual capital; no broker margin or borrow is simulated.
+        new_position = portfolio.positions[tick.symbol].quantity + signed
+        if new_position < 0 and abs(new_position * tick.bid) > portfolio.initial:
+            return 'Insufficient virtual short collateral'
         if quantity > (tick.ask_size if side == 'BUY' else tick.bid_size):
             return 'Insufficient visible top-of-book size'
         return None

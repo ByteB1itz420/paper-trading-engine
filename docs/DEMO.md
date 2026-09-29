@@ -1,6 +1,6 @@
 # Interview demonstration
 
-Run `MODE=demo` for repeatable synthetic quote waves. The header says **SYNTHETIC DEMO MODE**, and all fills are paper-only. The demo generator uses fixed price waves with two outliers, not historical Binance data. It should produce a long signal, risk check, simulated fill, P&L change, and exit when the mean recovers. A short proposal is deliberately rejected in the cash-only portfolio. You can show that rejection in the risk panel.
+Run `MODE=demo` for repeatable synthetic quote waves. The header says **SYNTHETIC DEMO MODE**, and all fills are paper-only. The demo generator uses fixed price waves with two outliers, not historical Binance data. It should produce a long signal, risk check, simulated fill, P&L change, and exit when the mean recovers. A short is a negative paper position; covering it uses the ask. Activate the kill switch to show risk rejections in the panel.
 
 To demonstrate the kill switch, provide the operator's `CONTROL_TOKEN` in the dashboard's local control field, select **ACTIVATE KILL SWITCH**, and observe the halted label. Future signals show manual-kill rejections. Select **Resume** to continue. **Reset session** starts a fresh virtual account while preserving prior records in SQL. Do not enter a real exchange key.
 

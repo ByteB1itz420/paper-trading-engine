@@ -84,9 +84,8 @@ class System:
             data = serial(signal)
             self.signals.append(data)
             self.store.add('strategy_signals', self.session, tick.symbol, data)
-            side = 'SELL' if signal.action in {'SHORT', 'EXIT'} and self.portfolio.positions[tick.symbol].quantity > 0 else 'BUY'
-            if signal.action == 'SHORT' and self.portfolio.positions[tick.symbol].quantity == 0:
-                side = 'SELL'  # transparently reject unsupported cash-account short
+            current_position = self.portfolio.positions[tick.symbol].quantity
+            side = 'BUY' if signal.action == 'LONG' or (signal.action == 'EXIT' and current_position < 0) else 'SELL'
             qty = abs(self.portfolio.positions[tick.symbol].quantity) if signal.action == 'EXIT' else self.cfg.order_notional / (tick.ask if side == 'BUY' else tick.bid)
             reason = self.risk.check(tick, side, qty, self.portfolio, int(time.time()*1000))
             if qty * tick.mid < self.cfg.min_notional:
@@ -99,8 +98,8 @@ class System:
             else:
                 fill = self.executor.fill(tick, signal, side, qty)
                 self.store.add('orders', self.session, tick.symbol, {'order_id': fill.order_id, 'signal': data, 'side': side, 'quantity': qty})
-                # Persist the intended fill before applying it in memory. A failed write halts
-                # the simulator; never show a paper fill that was not recorded.
+                # The in-memory ledger is the active-session source of truth; persistence
+                # records the fill before acknowledging it. A DB failure halts this run.
                 self.store.add('fills', self.session, tick.symbol, fill)
                 realized = self.portfolio.apply(fill)
                 filled = serial(fill)

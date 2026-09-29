@@ -73,7 +73,7 @@ def config():
     return {'mode': cfg.mode, 'symbols': cfg.symbols, 'window': cfg.window, 'entry_z': cfg.entry_z,
             'exit_z': cfg.exit_z, 'fee_rate': cfg.fee_rate, 'slippage_bps': cfg.slippage_bps,
             'initial_capital': cfg.initial_capital, 'stale_ms': cfg.stale_ms, 'paper_only': True,
-            'short_sales_supported': False}
+            'short_sales_supported': True}
 
 @app.get('/api/state')
 def state(): return sys.state()

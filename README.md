@@ -29,7 +29,7 @@ See [architecture](docs/ARCHITECTURE.md), [strategy](docs/TRADING_STRATEGY.md), 
 
 1. Read a current best bid and ask. The mid-price is their average.
 2. Build a rolling mean and standard deviation using **only previous** mid-prices.
-3. A sufficiently low z-score proposes a paper long. A sufficiently high z-score proposes a short, but this cash-only version rejects shorts explicitly.
+3. A sufficiently low z-score proposes a paper long. A sufficiently high z-score proposes a simulated short (negative position). Short borrow and margin are not modeled.
 4. When a long moves back toward the mean, propose a paper sell to exit.
 5. Every proposal must pass risk; every simulated fill carries the rule, z-score, quote and cost assumptions. No trades are guaranteed.
 
@@ -37,7 +37,7 @@ The `WINDOW_SIZE`-like setting here is `STRATEGY_WINDOW`; `ENTRY_Z` and `EXIT_Z`
 
 ## Execution and risk
 
-A paper buy crosses the quoted ask, a sell the quoted bid, then adds configured fixed slippage and fees. Requests larger than visible top-of-book size are rejected. The risk path checks stale/invalid quotes, per-asset position limits, minimum notional, available virtual cash, max UTC daily mark-to-market loss, and a manual kill switch. Position is not flattened automatically on halt. Top-book liquidity is not a real exchange fill guarantee; no queue position, hidden liquidity, or market impact is modeled.
+A paper buy crosses the quoted ask, a sell the quoted bid, then adds configured fixed slippage and fees. Requests larger than visible top-of-book size are rejected. The risk path checks stale/invalid quotes, per-asset position limits, minimum notional, available virtual cash, max UTC daily mark-to-market loss, and a manual kill switch. Gross short exposure is capped by virtual capital; short proceeds do not become real cash. Position is not flattened automatically on halt. Top-book liquidity is not a real exchange fill guarantee; no queue position, hidden liquidity, or market impact is modeled.
 
 Paper equity = cash + sum(position quantity × latest mid-price). Net return = equity / initial capital - 1. Maximum drawdown is the largest prior-peak-to-equity fall sampled in a run. Equal-weight BTC/ETH buy-and-hold allocates half of initial virtual capital to each first observed midpoint, then marks those units to subsequent midpoints; it excludes benchmark fees/spread, so it is not an execution-matched comparator. Strategy P&L includes its simulated fees and slippage. A brief live run is not evidence of edge. See [execution](docs/EXECUTION.md).
 
@@ -95,4 +95,4 @@ cd apps/frontend && npm ci && npm run lint && npm run build
 
 ## Limitations and evidence
 
-This code does not implement margin shorts, full-depth order books, maker queue priority, hidden liquidity, trading API requests, tick-perfect persistence, multi-process state coordination, or independent exchange reconciliation. The local tests and source code are not evidence of continuous uptime or of real-money profitability. No fabricated live performance figures are published. The README demo-media slot remains unfilled until a genuine captured runtime is recorded and visually checked.
+This code does not implement real borrow/locate, margin requirements, full-depth order books, maker queue priority, hidden liquidity, trading API requests, tick-perfect persistence, multi-process state coordination, or independent exchange reconciliation. The local tests and source code are not evidence of continuous uptime or of real-money profitability. No fabricated live performance figures are published. The README demo-media slot remains unfilled until a genuine captured runtime is recorded and visually checked.
